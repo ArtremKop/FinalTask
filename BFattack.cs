@@ -1,67 +1,84 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace WpfApp1final
 {
     public class BFattack
     {
-        public static string PerformBruteForceAttack(string encryptedPassword, int maxThreads)
+        private const string Charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";  
+        private const int MaxPasswordLength = 2;  
+
+        public static string? PerformBruteForceAttack(string encryptedPassword, int maxThreads)
         {
-            const string charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-            const int passwordLength = 6;
+            var tasks = new List<Task<string?>>();
 
-            List<Task<string>> tasks = new List<Task<string>>();
-
-            // Divide the workload among multiple threads
             for (int i = 0; i < maxThreads; i++)
             {
-                int start = (charset.Length / maxThreads) * i;
-                int end = (i == maxThreads - 1) ? charset.Length : (charset.Length / maxThreads) * (i + 1);
-
-                tasks.Add(Task.Run(() => BruteForce(encryptedPassword, charset, passwordLength, start, end)));
+                int threadIndex = i;
+                tasks.Add(Task.Run(() => BruteForce(encryptedPassword, threadIndex, maxThreads)));
             }
 
-            // Wait for all tasks to complete
             Task.WaitAll(tasks.ToArray());
 
-            // Retrieve the result from the completed tasks
             foreach (var task in tasks)
             {
-                if (task.IsCompletedSuccessfully)
+                if (!string.IsNullOrEmpty(task.Result))
                 {
                     return task.Result;
                 }
             }
-
-            return null; // No result found
+            return null;
         }
 
-        // Helper method for multithreaded brute force
-        private static string BruteForce(string encryptedPassword, string charset, int passwordLength, int start, int end)
+        private static string? BruteForce(string encryptedPassword, int threadIndex, int maxThreads)
         {
-            char[] password = new char[passwordLength];
+            int startIndex = threadIndex;
+            char[] password = new char[MaxPasswordLength];
 
-            // Start brute force attack
-            for (int i = start; i < end; i++)
+            while (true)
             {
-                // Generate a candidate password
-                for (int j = 0; j < passwordLength; j++)
+                if (BruteForceRecursive(encryptedPassword, password, 0, startIndex, maxThreads))
                 {
-                    password[j] = charset[i]; // Use characters from the charset
+                    return new string(password);
                 }
 
-                // Convert the candidate password to a string
-                string candidate = new string(password);
-
-                // Check if the encrypted candidate password matches the given encrypted password
-                if (Encryptor.EncryptPassword(candidate) == encryptedPassword)
+                startIndex += maxThreads;
+                if (startIndex >= Charset.Length)
                 {
-                    return candidate; // Return the original password
+                    break;
                 }
             }
 
-            return null; // No result found
+            return null;
+        }
+
+        private static bool BruteForceRecursive(string encryptedPassword, char[] password, int position, int startIndex, int maxThreads)
+        {
+            if (position == MaxPasswordLength)
+            {
+                string candidate = new string(password);
+                string encryptedCandidate = Encryptor.EncryptPassword(candidate);
+                Debug.WriteLine($"Trying password: {candidate} -> {encryptedCandidate}");
+                if (encryptedCandidate == encryptedPassword)
+                {
+                    return true;
+                }
+                return false;
+            }
+
+            for (int i = startIndex; i < Charset.Length; i += maxThreads)
+            {
+                password[position] = Charset[i];
+                if (BruteForceRecursive(encryptedPassword, password, position + 1, startIndex, maxThreads))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
     }
 }
